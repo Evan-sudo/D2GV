@@ -1,4 +1,4 @@
-# **Deformable 2D Gaussian Splatting for Video Processing**
+# **Deformable 2D Gaussian Splatting for Video Representation in 400FPS**
 
 ## **Requirements**
 Before running the code, install the required dependencies:
