@@ -45,7 +45,7 @@ sh ./scripts/gaussianimage_cholesky/bunny.sh /path/to/your/dataset
 To run **Deformed 3D Gaussian Splatting (3DGS)**, use:
 
 ```
-sh ./scripts/3dgs/kodak.sh /path/to/your/dataset
+sh ./scripts/3dgs/bunny.sh /path/to/your/dataset
 ```
 
 Make sure to replace `/path/to/your/dataset` with the actual dataset path.
