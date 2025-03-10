@@ -10,7 +10,7 @@ fi
 
 for num_points in 50000
 do
-CUDA_VISIBLE_DEVICES=8 python train_deform2.py -d $data_path \
+CUDA_VISIBLE_DEVICES=8 python train_prune.py -d $data_path \
 --data_name bunny --model_name GaussianImage_Cholesky --num_points $num_points --iterations 50000
 done
  

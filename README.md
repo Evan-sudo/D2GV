@@ -45,18 +45,27 @@ After downloading, place the dataset inside the `datasets/` directory before pro
 To run **Deformed 2D Gaussian Splatting (2DGS)**, execute the following command:
 
 ```
-sh ./scripts/D2GV/bunny.sh /path/to/your/dataset
+sh ./scripts/D2GV/train.sh /path/to/your/dataset
 ```
 
 To run **Deformed 2D Gaussian Splatting (2DGS)** with learnable pruning, execute the following command:
 
 ```
-sh ./scripts/D2GV/bunny.sh /path/to/your/dataset
+sh ./scripts/D2GV/Comp.sh /path/to/your/dataset
 ```
-
-
 
 Make sure to replace `/path/to/your/dataset` with the actual dataset path.
 
+e.g. :
 
+```
+./scripts/D2GV/train.sh ../D2GV/dataset/bunny/bunny_1
+```
 
+For bunny, we set the number of Gaussians to be 20000 while for Davis and UVG we set it as 35000.
+
+**Visual Quality Comparison**
+
+![Our method achieves best quality compared to competitive INR-based and GS-based methods.](./img/vis.png)
+
+Some source code of ours is borrowed from [GaussianImage](https://github.com/Xinjie-Q/GaussianImage) and [D-3DGS](https://github.com/ingra14m/Deformable-3D-Gaussians). We sincerely appreciate the excellent works of these authors.
