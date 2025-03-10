@@ -40,6 +40,7 @@ dataset/
 - **UVG dataset**: Download from [UVG Dataset](https://ultravideo.fi/dataset.html)
 
 After downloading, place the dataset inside the `datasets/` directory before proceeding with training or evaluation.
+A helper script for segmenting fixed-length GoPs can be found in /script/segment.py.
 
 ## **Startup**
 To run **Deformed 2D Gaussian Splatting (2DGS)**, execute the following command:
