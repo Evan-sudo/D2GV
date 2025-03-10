@@ -1,5 +1,5 @@
 # **Deformable 2D Gaussian Splatting for Video Representation at 400FPS**
-
+Note: This repo is still under development.
 ## **Requirements**
 Before running the code, install the required dependencies:
 
