@@ -65,7 +65,7 @@ e.g. :
 
 For bunny, we set the number of Gaussians to be 20000 while for Davis and UVG we set it as 35000.
 
-**Visual Quality Comparison**
+## **Visual Quality Comparison**
 
 ![Our method achieves best quality compared to competitive INR-based and GS-based methods.](./img/vis.png)
 
