@@ -1,5 +1,6 @@
 # **Deformable 2D Gaussian Splatting for Video Representation at 400FPS**
 Note: This repo is still under development.
+[Arxiv paper](https://arxiv.org/abs/2503.05600)
 
 ![Our method achieves high-quality rendering with fast convergence and rendering speed. It delivers competitive results within just 2 minutes of training for a single group of pictures (GoP). For a fair comparison, we aggregate the total training time across all GoPs, as shown on the right, which still offers faster convergence compared to INRs. The circle size indicates the decoding FPS.](./img/overview.png)
 
