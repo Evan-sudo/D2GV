@@ -15,8 +15,8 @@ import random
 import torchvision.transforms as transforms
 import os
 from deform_model import *
-
-
+import math
+import copy
 
 class SimpleTrainer2d:
     """Trains random 2d gaussians to fit an image."""
@@ -30,8 +30,7 @@ class SimpleTrainer2d:
         args = None,
     ):
         self.device = torch.device("cuda:0")
-        self.image_list, self.image_n_list = self._load_images(image_path)  # Load all images
-        self.original_image_n_list = self.image_n_list.copy()
+        self.image_list = self._load_images(image_path)  # Load all images
         self.original_image_list = self.image_list.copy()
         self.gt_image = self.image_list[0]
 
@@ -58,17 +57,25 @@ class SimpleTrainer2d:
             model_dict = self.gaussian_model.state_dict()
             pretrained_dict = {k: v for k, v in checkpoint.items() if k in model_dict}
             model_dict.update(pretrained_dict)
-            self.gaussian_model.load_state_dict(model_dict)  
-    
+            self.gaussian_model.load_state_dict(model_dict)
 
+    def _load_images(self, image_paths):
+        gt_images = []
+        for path in sorted(os.listdir(image_paths)):  # 按文件名排序
+            path_full = os.path.join(image_paths, path)
+            image_tensor = image_path_to_tensor(path_full).to(self.device)  # 转换为 Tensor 并移动到设备
+            gt_images.append(image_tensor)
+        return gt_images
+
+    
     def _pop_random_image(self):
         if len(self.image_list) == 0:
-            print("Image poped out!")
+            # print("Image list exhausted! Reloading...")
             self.image_list = list(self.original_image_list)
-        index = random.randint(0, len(self.image_list) - 1)
-        img = self.image_list.pop(index)
-        return img, index/len(self.original_image_list)  # Return (image, timestamp)
-    
+        img = self.image_list.pop(0)
+        timestamp = 1.0 - len(self.image_list) / len(self.original_image_list)
+        return img, timestamp  
+
 
     def train(self, stage):     
         psnr_list, iter_list = [], []
@@ -82,32 +89,43 @@ class SimpleTrainer2d:
         start_time = time.time()
         for iter in range(1, iterations+1):
             if stage == "coarse":
-                image, timestamp = self._pop_random_image()           
-                gt_image = image
-                render_pkg = self.gaussian_model.forward()
-            elif stage == "fine":
-                # self.gaussian_model._xyz.requires_grad = False
                 image, timestamp = self._pop_random_image()
                 gt_image = image
-                deformed_xyz, deformed_opacity, deformed_features = self.deform.step(self.gaussian_model.get_xyz,timestamp)
-                render_pkg = self.gaussian_model.forward_dynamic(deformed_xyz, deformed_opacity, deformed_features)
+                # gt_image=self.image_list[0]
+                render_pkg = self.gaussian_model.forward()
+            elif stage == "fine":
+                # if iter < 20000:
+                #     self.gaussian_model._xyz.requires_grad = False
+                image, timestamp = self._pop_random_image()
+                gt_image = image
+                if iter > 30000:
+                    deformed_xyz, deformed_opacity, deformed_features = self.deform.step(self.gaussian_model.get_xyz,timestamp)
+                    render_pkg = self.gaussian_model.forward_prune(deformed_xyz, deformed_opacity, deformed_features)
+                else:
+                    deformed_xyz, deformed_opacity, deformed_features = self.deform.step(self.gaussian_model.get_xyz,timestamp)
+                    render_pkg = self.gaussian_model.forward_dynamic(deformed_xyz, deformed_opacity, deformed_features)
                 
             image = render_pkg["render"]
-            loss = loss_fn(image, gt_image, self.gaussian_model.loss_type, lambda_value=0.8)  #0.8
+            loss_n = torch.mean(torch.sigmoid(self.gaussian_model.m))
+            loss = loss_fn(image, gt_image, self.gaussian_model.loss_type, lambda_value=0.8)
+            if stage == "fine":
+                if iter > 30000 and iter < 65000:
+                    if iter % 15 == 0:
+                        loss=loss+5e-3*loss_n
+                # if iter == 60000:
+                #     self.gaussian_model.apply_mask()
+                     
             loss.backward()        
             with torch.no_grad():
                 mse_loss = F.mse_loss(image, gt_image)
                 psnr = 10 * math.log10(1.0 / mse_loss.item())
-                mse_loss_n = F.mse_loss(gt_image, gt_image_0)
-                psnr_n = 10 * math.log10(1.0 / mse_loss_n.item())
-            # print("PSNR is:",psnr_n)
-
             self.gaussian_model.optimizer.step()
             self.gaussian_model.optimizer.zero_grad(set_to_none = True)
             self.deform.optimizer.step()
             self.deform.optimizer.zero_grad()
             self.gaussian_model.scheduler.step()
             self.deform.update_learning_rate(iter)
+        
             psnr_list.append(psnr)
             iter_list.append(iter)
             with torch.no_grad():
@@ -116,14 +134,10 @@ class SimpleTrainer2d:
                     progress_bar.update(10)
                 if iter % 5000 == 0:
                     psnr_value, ms_ssim_value = self.test()
-                    #self.save_model_parameters()
-                    decode_fps = self.test_fps()
-                    print("Decoding fps:", decode_fps)
-                    # self.interpolation_test()
-                # if iter % 10000 == 0:
-                #     self.dump_images()
-                    
-                    
+                    self.save_model_parameters()
+                    mask = torch.sigmoid(self.gaussian_model.m) > self.gaussian_model.epsilon  # 生成二值mask
+                    count_mask_1 = mask.sum()  # 统计mask中值为1的元素数量
+                    print(f"Number of elements with mask = 1: {count_mask_1.item()}")
         end_time = time.time() - start_time
         progress_bar.close()
         # psnr_value, ms_ssim_value = self.test()
@@ -135,10 +149,7 @@ class SimpleTrainer2d:
             test_end_time = (time.time() - test_start_time)/100
             
         return psnr_value, ms_ssim_value
-        # self.logwriter.write("Training Complete in {:.4f}s, Eval time:{:.8f}s, FPS:{:.4f}".format(end_time, test_end_time, 1/test_end_time))
 
-    
-    
     def test(self):
         """Evaluate the model on all video frames."""
         self.gaussian_model.eval()
@@ -153,12 +164,10 @@ class SimpleTrainer2d:
                 # Pop the first image and calculate timestamp
                 img = self.image_list.pop(0)
                 timestamp = 1.0 - len(self.image_list) / len(self.original_image_list)
-
-                # Perform deformation using the deformation network
                 deformed_xyz, deformed_opacity, deformed_features = self.deform.step(
                     self.gaussian_model.get_xyz, torch.tensor([[timestamp]], device=self.device)
                 )
-                render_pkg = self.gaussian_model.forward_dynamic(
+                render_pkg = self.gaussian_model.forward_prune_test(
                     deformed_xyz, deformed_opacity, deformed_features
                 )
                 rendered_image = render_pkg["render"]
@@ -170,67 +179,91 @@ class SimpleTrainer2d:
 
                 total_psnr += psnr
                 total_ms_ssim += ms_ssim_value
-                transform = transforms.ToPILImage()
-                img = transform(rendered_image.float().squeeze(0))
-                name = f"test_frame_{i:04d}.png"
-                img.save("./test/" + name)
-                
-        # Compute average PSNR and MS-SSIM
+
+                # Save rendered images if required
+                if self.save_imgs:
+                    transform = transforms.ToPILImage()
+                    img = transform(rendered_image.float().squeeze(0))
+                    name = f"test_frame_{i:04d}.png"
+                    img.save("./test/" + name)
+
         avg_psnr = total_psnr / num_frames
         avg_ms_ssim = total_ms_ssim / num_frames
-        
-        # save canonical frame
-        render_pkg = self.gaussian_model.forward()
-        rendered_image = render_pkg["render"]
-        transform = transforms.ToPILImage()
-        img = transform(rendered_image.float().squeeze(0))
-        name = f"test_frame_canonical.png"
-        img.save("./test/" + name)
+
         # Log test results
         self.logwriter.write(
             "Test Average PSNR:{:.4f}, MS_SSIM:{:.6f}".format(avg_psnr, avg_ms_ssim)
         )
         return avg_psnr, avg_ms_ssim
     
-    
-    def dump_images(self):
-        """Generate and save each frame's rendered image."""
-        self.gaussian_model.eval()  # Set the model to evaluation mode
+
+    def test_prune(self, prune_ratio=0.1):
+        """Evaluate the model on all video frames with pruning based on a single ratio."""
+        self.gaussian_model.eval()
+        total_psnr, total_ms_ssim = 0, 0
         num_frames = len(self.original_image_list)
-        image_list = list(self.original_image_list)
-        output_folder = "./test_it"
-        os.makedirs(output_folder, exist_ok=True)
+
+        # Reset image list to ensure full video evaluation
+        self.image_list = list(self.original_image_list)
 
         with torch.no_grad():
             for i in range(num_frames):
-                img = image_list.pop(0)
-                timestamp = 1.0 - len(image_list) / len(self.original_image_list)
+                # Pop the first image and calculate timestamp
+                img = self.image_list.pop(0)
+                timestamp = 1.0 - len(self.image_list) / len(self.original_image_list)
+                # Get features and opacity from the original model
+                features = self.gaussian_model.get_features  # (N, 3)
+                opacity = self.gaussian_model.get_opacity    # (N, 1)
+                combined = features * opacity  # (N, 3) since opacity is (N, 1)
+                combined_norm = torch.norm(combined, dim=1)  # L2 norm across the second dimension (3)
+                sorted_norms, indices = torch.sort(combined_norm)
+                threshold_index = int(len(sorted_norms) * prune_ratio)
+                prune_mask = torch.zeros_like(combined_norm, dtype=torch.bool)
+                prune_mask[combined_norm >= sorted_norms[threshold_index]] = 1
+
                 deformed_xyz, deformed_opacity, deformed_features = self.deform.step(
-                    self.gaussian_model.get_xyz, torch.tensor([[timestamp]], device=self.device)
+                    self.gaussian_model.get_xyz[prune_mask], torch.tensor([[timestamp]], device=self.device)
                 )
-                render_pkg = self.gaussian_model.forward_dynamic(
+                render_pkg = self.gaussian_model.forward_prune(
                     deformed_xyz, deformed_opacity, deformed_features
                 )
                 rendered_image = render_pkg["render"]
-                rendered_image = transforms.ToPILImage()(rendered_image.float().squeeze(0))
-                # Save the rendered image as PNG
-                frame_name = f"frame_{i:04d}.png"
-                rendered_image.save(os.path.join(output_folder, frame_name))
-        print(f"Images saved in '{output_folder}/'.")       
-    
+                mse_loss = F.mse_loss(rendered_image.float(), img.float())
+                psnr = 10 * math.log10(1.0 / mse_loss.item())
+                ms_ssim_value = ms_ssim(
+                    rendered_image.float(), img.float(), data_range=1, size_average=True
+                ).item()
+
+                total_psnr += psnr
+                total_ms_ssim += ms_ssim_value
+
+                # Save rendered images if required
+                if self.save_imgs:
+                    transform = transforms.ToPILImage()
+                    img = transform(rendered_image.float().squeeze(0))
+                    name = f"test_frame_{i:04d}_pruned_{prune_ratio}.png"
+                    img.save(f"./test/{name}")
+        avg_psnr = total_psnr / num_frames
+        avg_ms_ssim = total_ms_ssim / num_frames
+        self.logwriter.write(
+            "Test Average PSNR:{:.4f}, MS_SSIM:{:.6f}".format(avg_psnr, avg_ms_ssim)
+        )
+        return avg_psnr, avg_ms_ssim
+
+
 
     def test_fps(self):
+        """Render all video frames and calculate decode FPS."""
         self.gaussian_model.eval()
         num_frames = len(self.original_image_list)
         self.image_list = list(self.original_image_list)
         start_time = time.time()  # Start timer
-
         with torch.no_grad():
             for i in range(num_frames):
                 self.image_list.pop(0)
                 timestamp = 1.0 - len(self.image_list) / len(self.original_image_list)
                 deformed_xyz, deformed_opacity, deformed_features = self.deform.step(
-                    self.gaussian_model.get_xyz, torch.tensor([[timestamp]], device=self.device)
+                    self.gaussian_model._xyz, torch.tensor([[timestamp]], device=self.device)
                 )
                 render_pkg = self.gaussian_model.forward_dynamic(
                     deformed_xyz, deformed_opacity, deformed_features
@@ -241,36 +274,6 @@ class SimpleTrainer2d:
         print(f"Decode FPS: {decode_fps:.2f}")
 
         return decode_fps    
-    
-    def interpolation_test(self):
-        """Generate and save only interpolated frames using midpoint timestamps."""
-        self.gaussian_model.eval()
-        num_frames = len(self.original_image_list)
-
-        # Folder for saving interpolated images
-        os.makedirs("./test_it", exist_ok=True)
-
-        with torch.no_grad():
-            for i in range(num_frames - 1):
-                # Compute timestamps for the current and next frames
-                timestamp1 = 1 - (num_frames - i) / num_frames
-                timestamp2 = 1 - (num_frames - (i + 1)) / num_frames
-                mid_timestamp = (timestamp1 + timestamp2) / 2.0
-
-                # Save the interpolated image for the mid timestamp
-                deformed_xyz_mid, deformed_opacity_mid, deformed_features_mid = self.deform.step(
-                    self.gaussian_model.get_xyz, torch.tensor([[mid_timestamp]], device=self.device)
-                )
-                render_pkg_mid = self.gaussian_model.forward_dynamic(
-                    deformed_xyz_mid, deformed_opacity_mid, deformed_features_mid
-                )
-                rendered_image_mid = render_pkg_mid["render"]
-                rendered_image_mid = transforms.ToPILImage()(rendered_image_mid.float().squeeze(0))
-                
-                # Save with fractional index
-                rendered_image_mid.save(f"./test_it/test_frame_{i + 0.5:.1f}.png")
-
-        print("Interpolation test completed. Images saved in './test_it/'.")     
     
     
     def save_model_parameters(self):
@@ -289,7 +292,6 @@ def image_path_to_tensor(image_path: Path):
     transform = transforms.ToTensor()
     img_tensor = transform(img).unsqueeze(0) #[1, C, H, W]
     return img_tensor
-
 
 def parse_args(argv):
     parser = argparse.ArgumentParser(description="Example training script.")
@@ -321,7 +323,6 @@ def parse_args(argv):
         "--lr",
         type=float,
         default=5e-3,
-        # default=1e-2,
         help="Learning rate (default: %(default)s)",
     )
     args = parser.parse_args(argv)
@@ -352,6 +353,9 @@ def main(argv):
     psnr,ssim = trainer.train(stage="fine")    
     print(f"Segment: {args.data_name}, PSNR: {psnr:.4f}, SSIM: {ssim:.6f}") 
     return psnr, ssim   
+
+
+
   
 
 if __name__ == "__main__":

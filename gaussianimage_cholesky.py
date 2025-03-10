@@ -36,6 +36,8 @@ class GaussianImage_Cholesky(nn.Module):
         self.rgb_activation = torch.sigmoid
         self.register_buffer('bound', torch.tensor([0.5, 0.5]).view(1, 2))
         self.register_buffer('cholesky_bound', torch.tensor([0.5, 0, 0.5]).view(1, 3))
+        self.m = nn.Parameter(torch.full((self.init_num_points, 1), 1.2))
+        self.epsilon = 0.2
         
         # # DeformNetwork
         # self.deform_network = DeformNetwork(D=2, W=256, pos_multires=6, time_multires=6)
@@ -48,8 +50,6 @@ class GaussianImage_Cholesky(nn.Module):
               
         self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=20000, gamma=0.5)
 
-    # def _init_data(self):
-    #     self.cholesky_quantizer._init_data(self._cholesky)
 
     @property
     def get_xyz(self):
@@ -88,6 +88,32 @@ class GaussianImage_Cholesky(nn.Module):
         return {"render": out_img}
     
     
+    def forward_prune(self, deformed_xyz, deformed_opacity, deformed_features):
+        soft_mask = torch.sigmoid(self.m)
+        binary_mask = (soft_mask > self.epsilon).float()  # determine the ratio to be pruned
+        stop_gradient_part = (binary_mask - soft_mask).detach()
+        final_mask = stop_gradient_part + soft_mask
+        xys, depths, self.radii, conics, num_tiles_hit = project_gaussians_2d(torch.tanh(self._xyz+deformed_xyz), self._cholesky + self.cholesky_bound, self.H, self.W, self.tile_bounds)
+        out_img = rasterize_gaussians_sum(xys, depths, self.radii, conics, num_tiles_hit,
+                self.get_features+deformed_features, self.get_opacity*final_mask, self.H, self.W, self.BLOCK_H, self.BLOCK_W, background=self.background, return_alpha=False)
+                #self.get_features+deformed_features, self.get_opacity, self.H, self.W, self.BLOCK_H, self.BLOCK_W, background=self.background, return_alpha=False)
+        out_img = torch.clamp(out_img, 0, 1) #[H, W, 3]
+        out_img = out_img.view(-1, self.H, self.W, 3).permute(0, 3, 1, 2).contiguous()
+        return {"render": out_img}
+    
+    def forward_prune_test(self, deformed_xyz, deformed_opacity, deformed_features):
+        soft_mask = torch.sigmoid(self.m)
+        binary_mask = (soft_mask > self.epsilon).float() 
+        final_mask = binary_mask
+        xys, depths, self.radii, conics, num_tiles_hit = project_gaussians_2d(torch.tanh(self._xyz+deformed_xyz), self._cholesky + self.cholesky_bound, self.H, self.W, self.tile_bounds)
+        out_img = rasterize_gaussians_sum(xys, depths, self.radii, conics, num_tiles_hit,
+                self.get_features+deformed_features, self.get_opacity*final_mask, self.H, self.W, self.BLOCK_H, self.BLOCK_W, background=self.background, return_alpha=False)
+                #self.get_features+deformed_features, self.get_opacity, self.H, self.W, self.BLOCK_H, self.BLOCK_W, background=self.background, return_alpha=False)
+        out_img = torch.clamp(out_img, 0, 1) #[H, W, 3]
+        out_img = out_img.view(-1, self.H, self.W, 3).permute(0, 3, 1, 2).contiguous()
+        return {"render": out_img}     
+    
+    
 
     def train_iter(self, gt_image, timestamp, stage):
         if stage == "coarse":
@@ -106,4 +132,19 @@ class GaussianImage_Cholesky(nn.Module):
         return loss, psnr
 
 
-  
+    def _quantize(self, inputs, quantization_step, mode="noise"):
+        if mode == "noise":
+            noise = (torch.rand(inputs.size(), device=inputs.device) - 0.5) * quantization_step
+            return inputs + noise
+        elif mode == "symbols":
+            return RoundNoGradient.apply(inputs / quantization_step) * quantization_step
+        
+    def apply_mask(self):
+        soft_mask = torch.sigmoid(self.m)
+        binary_mask = (soft_mask > self.epsilon).float()
+
+        # Apply the mask to each of the parameters
+        self._xyz.data *= binary_mask.view(-1, 1)  # Applying mask to _xyz
+        self._cholesky.data *= binary_mask.view(-1, 1)  # Applying mask to _cholesky
+        self._opacity.data *= binary_mask.view(-1, 1)  # Applying mask to _opacity
+        self._features_dc.data *= binary_mask.view(-1, 1)  # Applying mask to _features_dc

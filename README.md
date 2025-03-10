@@ -1,6 +1,12 @@
 # **Deformable 2D Gaussian Splatting for Video Representation at 400FPS**
 Note: This repo is still under development.
+
+![Our method achieves high-quality rendering with fast convergence and rendering speed. It delivers competitive results within just 2 minutes of training for a single group of pictures (GoP). For a fair comparison, we aggregate the total training time across all GoPs, as shown on the right, which still offers faster convergence compared to INRs. The circle size indicates the decoding FPS.](./img/overview.png)
+
+We propose a novel video representation based on deformable 2D Gaussian splatting, dubbed D2GV, which aims to achieve three key objectives: 1) improved efficiency while delivering superior quality; 2) enhanced scalability and interpretability; and 3) increased friendliness for downstream tasks. Specifically, we initially divide the video sequence into fixed-length Groups of Pictures (GoP) to allow parallel training and linear scalability with video length. For each GoP, D2GV represents video frames by applying differentiable rasterization to 2D Gaussians, which are deformed from a canonical space into their corresponding timestamps. Notably, leveraging efficient CUDA-based rasterization, D2GV converges fast and decodes at speeds exceeding 400 FPS, while delivering quality that matches or surpasses state-of-the-art INRs. 
+
 ## **Requirements**
+
 Before running the code, install the required dependencies:
 
 ```
@@ -39,17 +45,18 @@ After downloading, place the dataset inside the `datasets/` directory before pro
 To run **Deformed 2D Gaussian Splatting (2DGS)**, execute the following command:
 
 ```
-sh ./scripts/gaussianimage_cholesky/bunny.sh /path/to/your/dataset
+sh ./scripts/D2GV/bunny.sh /path/to/your/dataset
 ```
 
-To run **Deformed 3D Gaussian Splatting (3DGS)**, use:
+To run **Deformed 2D Gaussian Splatting (2DGS)** with learnable pruning, execute the following command:
 
 ```
-sh ./scripts/3dgs/bunny.sh /path/to/your/dataset
+sh ./scripts/D2GV/bunny.sh /path/to/your/dataset
 ```
+
+
 
 Make sure to replace `/path/to/your/dataset` with the actual dataset path.
-
 
 
 
