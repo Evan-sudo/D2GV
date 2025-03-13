@@ -44,6 +44,10 @@ After downloading, place the dataset inside the `datasets/` directory before pro
 A helper script for segmenting fixed-length GoPs can be found in /scripts/segment.py.
 
 ## **Startup**
+Note: Run the following to grant the permission:
+```
+chmod +x ./scripts/D2GV/train.sh
+```
 To run **Deformed 2D Gaussian Splatting (2DGS)**, execute the following command:
 
 ```
