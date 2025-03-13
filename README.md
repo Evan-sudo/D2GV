@@ -75,3 +75,13 @@ For bunny, we set the number of Gaussians to be 20000 while for Davis and UVG we
 ![Our method achieves best quality compared to competitive INR-based and GS-based methods.](./img/vis.png)
 
 Some source code of ours is borrowed from [GaussianImage](https://github.com/Xinjie-Q/GaussianImage) and [D-3DGS](https://github.com/ingra14m/Deformable-3D-Gaussians). We sincerely appreciate the excellent works of these authors.
+## **Citation**
+If you find our work helpful, please cite:
+```
+@article{liu2025d2gv,
+  title={D2GV: Deformable 2D Gaussian Splatting for Video Representation in 400FPS},
+  author={Liu, Mufan and Yang, Qi and Zhao, Miaoran and Huang, He and Yang, Le and Li, Zhu and Xu, Yiling},
+  journal={arXiv preprint arXiv:2503.05600},
+  year={2025}
+}
+```
