@@ -1,0 +1,5 @@
+furo
+sphinx
+sphinx-copybutton
+sphinx-design
+sphinxcontrib-bibtex
