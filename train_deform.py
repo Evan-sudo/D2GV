@@ -30,8 +30,7 @@ class SimpleTrainer2d:
         args = None,
     ):
         self.device = torch.device("cuda:0")
-        self.image_list, self.image_n_list = self._load_images(image_path)  # Load all images
-        self.original_image_n_list = self.image_n_list.copy()
+        self.image_list = self._load_images(image_path)  # Load all images
         self.original_image_list = self.image_list.copy()
         self.gt_image = self.image_list[0]
 
@@ -60,14 +59,22 @@ class SimpleTrainer2d:
             model_dict.update(pretrained_dict)
             self.gaussian_model.load_state_dict(model_dict)  
     
+    def _load_images(self, image_paths):
+        gt_images = []
+        for path in sorted(os.listdir(image_paths)):  # 按文件名排序
+            path_full = os.path.join(image_paths, path)
+            image_tensor = image_path_to_tensor(path_full).to(self.device)  # 转换为 Tensor 并移动到设备
+            gt_images.append(image_tensor)
+        return gt_images    
+    
 
     def _pop_random_image(self):
         if len(self.image_list) == 0:
-            print("Image poped out!")
+            # print("Image list exhausted! Reloading...")
             self.image_list = list(self.original_image_list)
-        index = random.randint(0, len(self.image_list) - 1)
-        img = self.image_list.pop(index)
-        return img, index/len(self.original_image_list)  # Return (image, timestamp)
+        img = self.image_list.pop(0)
+        timestamp = 1.0 - len(self.image_list) / len(self.original_image_list)
+        return img, timestamp  
     
 
     def train(self, stage):     
@@ -98,9 +105,6 @@ class SimpleTrainer2d:
             with torch.no_grad():
                 mse_loss = F.mse_loss(image, gt_image)
                 psnr = 10 * math.log10(1.0 / mse_loss.item())
-                mse_loss_n = F.mse_loss(gt_image, gt_image_0)
-                psnr_n = 10 * math.log10(1.0 / mse_loss_n.item())
-            # print("PSNR is:",psnr_n)
 
             self.gaussian_model.optimizer.step()
             self.gaussian_model.optimizer.zero_grad(set_to_none = True)
@@ -170,23 +174,26 @@ class SimpleTrainer2d:
 
                 total_psnr += psnr
                 total_ms_ssim += ms_ssim_value
-                transform = transforms.ToPILImage()
-                img = transform(rendered_image.float().squeeze(0))
-                name = f"test_frame_{i:04d}.png"
-                img.save("./test/" + name)
+                if self.save_imgs:
+                    save_dir = "./test/"
+                    os.makedirs(save_dir, exist_ok=True)
+                    transform = transforms.ToPILImage()
+                    img = transform(rendered_image.float().squeeze(0))
+                    name = f"test_frame_{i:04d}.png"
+                    img.save(os.path.join(save_dir, name))
                 
         # Compute average PSNR and MS-SSIM
         avg_psnr = total_psnr / num_frames
         avg_ms_ssim = total_ms_ssim / num_frames
         
         # save canonical frame
-        render_pkg = self.gaussian_model.forward()
-        rendered_image = render_pkg["render"]
-        transform = transforms.ToPILImage()
-        img = transform(rendered_image.float().squeeze(0))
-        name = f"test_frame_canonical.png"
-        img.save("./test/" + name)
-        # Log test results
+        # render_pkg = self.gaussian_model.forward()
+        # rendered_image = render_pkg["render"]
+        # transform = transforms.ToPILImage()
+        # img = transform(rendered_image.float().squeeze(0))
+        # name = f"test_frame_canonical.png"
+        # img.save("./test/" + name)
+        # # Log test results
         self.logwriter.write(
             "Test Average PSNR:{:.4f}, MS_SSIM:{:.6f}".format(avg_psnr, avg_ms_ssim)
         )
