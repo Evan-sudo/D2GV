@@ -5,7 +5,6 @@ import torch
 import torch.nn as nn
 import numpy as np
 import math
-from quantize import *
 from optimizer import Adan
 from deformation import *
 
@@ -30,7 +29,6 @@ class GaussianImage_Cholesky(nn.Module):
         # self._opacity = nn.Parameter(torch.rand(self.init_num_points, 1))
         self._features_dc = nn.Parameter(torch.rand(self.init_num_points, 3))
         self.last_size = (self.H, self.W)
-        self.quantize = kwargs["quantize"]  
         self.register_buffer('background', torch.ones(3))
         self.opacity_activation = torch.sigmoid
         self.rgb_activation = torch.sigmoid
